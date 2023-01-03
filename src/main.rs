@@ -1,27 +1,43 @@
+use std::time::Instant;
 use std::process::Command;
+use std::slice::{Iter};
+use crate::CellState::{Empty, Occupied};
+use crate::Direction::*;
 
-const VICTORY: u32 = 1;
-const DEFEAT: u32 = 0;
 const MAX_DEPTH: u32 = 31;
 const GRID_SIZE: usize = 7;
 
-const IMPOSSIBLE: u8 = 1;
-const EMPTY: u8 = 2;
-const OCCUPIED: u8 = 3;
+#[derive(Debug, Hash, Eq, PartialEq)]
+enum Direction {
+    North,
+    West,
+    South,
+    East,
+}
 
-const NORTH: u8 = 1;
-const WEST: u8 = 2;
-const SOUTH: u8 = 3;
-const EAST: u8 = 4;
+impl Direction {
+    pub fn iterator() -> Iter<'static, Direction> {
+        static DIRECTIONS: [Direction; 4] = [North, South, East, West];
+        DIRECTIONS.iter()
+    }
+}
 
+#[derive(PartialEq, Copy, Clone)]
+enum CellState {
+    Empty,
+    Occupied,
+}
+
+#[derive(Debug, Hash, Eq, PartialEq)]
 struct Movement {
     coords: [usize; 2],
-    direction: u8,
+    direction: &'static Direction,
 }
+
+type Grid = [[Option<CellState>; GRID_SIZE]; GRID_SIZE];
 
 
 fn main() {
-    use std::time::Instant;
     let now = Instant::now();
     {
         let mut grid = create_grid();
@@ -30,133 +46,133 @@ fn main() {
     }
     let elapsed = now.elapsed();
     println!("Elapsed: {:.2?}", elapsed);
-    let _ = Command::new("cmd.exe").arg("/c").arg("pause").status();
+    Command::new("cmd.exe").arg("/c").arg("pause").status().unwrap();
 }
 
-fn game_recursion(grid: &mut [[u8; 7]; 7], depth: u32) -> u32 {
+fn game_recursion(grid: &mut Grid, depth: u32) -> bool {
     if depth == MAX_DEPTH {
         println!("Solution trouvée");
         display_grid(grid);
-        return VICTORY;
-    } else {
-        for row in 0..GRID_SIZE {
-            for col in 0..GRID_SIZE {
-                for direction in NORTH..=EAST { // eq. to 1..=4
-                    let movement = Movement { coords: [row, col], direction };
-                    if is_movable(grid, &movement) {
-                        put_piece(grid, &movement);
-                        let result: u32 = game_recursion(grid, depth + 1);
-                        undo_move(grid, &movement);
-                        if result == VICTORY {
-                            display_grid(grid);
-                            return VICTORY;
-                        }
+        return true;
+    }
+    for row in 0..GRID_SIZE {
+        for col in 0..GRID_SIZE {
+            for direction in Direction::iterator() {
+                let movement = Movement { coords: [row, col], direction };
+                if is_movable(grid, &movement) {
+                    put_piece(grid, &movement);
+                    let result = game_recursion(grid, depth + 1);
+                    undo_move(grid, &movement);
+                    if result {
+                        display_grid(grid);
+                        return true;
                     }
                 }
             }
         }
     }
-    DEFEAT
+    false
 }
 
-fn is_movable(grid: &[[u8; 7]; 7], wanted_move: &Movement) -> bool {
+#[inline(always)]
+fn is_movable(grid: &Grid, wanted_move: &Movement) -> bool {
     let (row, col) = (wanted_move.coords[0], wanted_move.coords[1]);
-    if grid[row][col] != OCCUPIED {
+    if grid[row][col] != Some(Occupied) {
         return false;
     }
-    let is_move_possible: bool = match wanted_move.direction {
-        NORTH => row > 1
-            && grid[row - 1][col] == OCCUPIED
-            && grid[row - 2][col] == EMPTY,
-        SOUTH => row < 5
-            && grid[row + 1][col] == OCCUPIED
-            && grid[row + 2][col] == EMPTY,
-        EAST => col < 5
-            && grid[row][col + 1] == OCCUPIED
-            && grid[row][col + 2] == EMPTY,
-        WEST => col > 1
-            && grid[row][col - 1] == OCCUPIED
-            && grid[row][col - 2] == EMPTY,
-        _ => panic!()
-    };
-    is_move_possible
+    match wanted_move.direction {
+        North => row > 1
+            && grid[row - 1][col] == Some(Occupied)
+            && grid[row - 2][col] == Some(Empty),
+        South => row < 5
+            && grid[row + 1][col] == Some(Occupied)
+            && grid[row + 2][col] == Some(Empty),
+        East => col < 5
+            && grid[row][col + 1] == Some(Occupied)
+            && grid[row][col + 2] == Some(Empty),
+        West => col > 1
+            && grid[row][col - 1] == Some(Occupied)
+            && grid[row][col - 2] == Some(Empty),
+    }
 }
 
-fn undo_move(grid: &mut [[u8; 7]; 7], m: &Movement) {
+#[inline(always)]
+fn undo_move(grid: &mut Grid, m: &Movement) {
     let (old_row, old_col) = (m.coords[0], m.coords[1]);
-    grid[old_row][old_col] = OCCUPIED;
+    grid[old_row][old_col] = Some(Occupied);
     match m.direction {
-        NORTH => {
-            grid[old_row - 1][old_col] = OCCUPIED;
-            grid[old_row - 2][old_col] = EMPTY;
+        North => {
+            grid[old_row - 1][old_col] = Some(Occupied);
+            grid[old_row - 2][old_col] = Some(Empty);
         }
-        SOUTH => {
-            grid[old_row + 1][old_col] = OCCUPIED;
-            grid[old_row + 2][old_col] = EMPTY;
+        South => {
+            grid[old_row + 1][old_col] = Some(Occupied);
+            grid[old_row + 2][old_col] = Some(Empty);
         }
-        WEST => {
-            grid[old_row][old_col - 1] = OCCUPIED;
-            grid[old_row][old_col - 2] = EMPTY;
+        West => {
+            grid[old_row][old_col - 1] = Some(Occupied);
+            grid[old_row][old_col - 2] = Some(Empty);
         }
-        EAST => {
-            grid[old_row][old_col + 1] = OCCUPIED;
-            grid[old_row][old_col + 2] = EMPTY;
+        East => {
+            grid[old_row][old_col + 1] = Some(Occupied);
+            grid[old_row][old_col + 2] = Some(Empty);
         }
-        _ => {}
     }
 }
 
-fn put_piece(grid: &mut [[u8; 7]; 7], m: &Movement) {
+#[inline(always)]
+fn put_piece(grid: &mut Grid, m: &Movement) {
     let (row, col) = (m.coords[0], m.coords[1]);
-    grid[row][col] = EMPTY;
+    grid[row][col] = Some(Empty);
     match m.direction {
-        NORTH => {
-            grid[row - 1][col] = EMPTY;
-            grid[row - 2][col] = OCCUPIED;
+        North => {
+            grid[row - 1][col] = Some(Empty);
+            grid[row - 2][col] = Some(Occupied);
         }
-        SOUTH => {
-            grid[row + 1][col] = EMPTY;
-            grid[row + 2][col] = OCCUPIED;
+        South => {
+            grid[row + 1][col] = Some(Empty);
+            grid[row + 2][col] = Some(Occupied);
         }
-        WEST => {
-            grid[row][col - 1] = EMPTY;
-            grid[row][col - 2] = OCCUPIED;
+        West => {
+            grid[row][col - 1] = Some(Empty);
+            grid[row][col - 2] = Some(Occupied);
         }
-        EAST => {
-            grid[row][col + 1] = EMPTY;
-            grid[row][col + 2] = OCCUPIED;
+        East => {
+            grid[row][col + 1] = Some(Empty);
+            grid[row][col + 2] = Some(Occupied);
         }
-        _ => {}
     }
 }
 
-fn create_grid() -> [[u8; 7]; 7] {
-    let mut grid: [[u8; GRID_SIZE]; GRID_SIZE] = [[OCCUPIED; GRID_SIZE]; GRID_SIZE];
+#[inline(always)]
+fn create_grid() -> Grid {
+    let mut grid = [[Some(Occupied); GRID_SIZE]; GRID_SIZE];
     for row in 0..2 {
         for column in 0..2 {
-            grid[row][column] = IMPOSSIBLE;
-            grid[row + 5][column] = IMPOSSIBLE;
-            grid[row][column + 5] = IMPOSSIBLE;
-            grid[row + 5][column + 5] = IMPOSSIBLE;
+            grid[row][column] = None;
+            grid[row + 5][column] = None;
+            grid[row][column + 5] = None;
+            grid[row + 5][column + 5] = None;
         }
     }
-    grid[3][3] = EMPTY;
+    grid[3][3] = Some(Empty);
     grid
 }
 
-fn display_grid(grid: &[[u8; 7]; 7]) {
+fn display_grid(grid: &Grid) {
+    let mut buffer = String::new();
     for row in grid.iter() {
-        for &column in row.iter() {
+        for column in row.iter() {
             match column {
-                IMPOSSIBLE => print!("  "),
-                EMPTY => print!("_ "),
-                OCCUPIED => print!("X "),
-                _ => {}
+                None => buffer.push_str("  "),
+                Some(state) => match state {
+                    Empty => buffer.push_str("_ "),
+                    Occupied => buffer.push_str("X ")
+                }
             }
         }
-        println!();
+        buffer.push('\n');
     }
-    println!()
+    println!("{}", buffer);
 }
-
 
